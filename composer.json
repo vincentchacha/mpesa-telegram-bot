@@ -1,0 +1,12 @@
+{
+    "name": "Lipa Na Mpesa Bot",
+    "description": "Simple bot for Mpesa STK Push service",
+    "keywords": ["mpesa", "php","bot"],
+    "license": "MIT",
+    "type": "project",
+   "require": {
+      "guzzlehttp/guzzle": "~6.0",
+        "safaricom/mpesa": "^1.0",
+        "vlucas/phpdotenv": "^2.4"
+   }
+}
