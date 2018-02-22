@@ -6,5 +6,5 @@ To use this code, ensure that you have bot registered and set up correctly. You 
 This bot uses telegrams web hooks to get updates from users. Ensure that you register webHook to point to your code's location address
 # NB
 This bot uses safaricom sandbox account. So if you try to make a transaction and it delays or fails to respond, then do not freak out since that is how sanbox services work. Maybe you should contact safaricom to get a live account.
-#Contact
+# Contact
 If you need advanced bot developments for any bussiness,ecommerce,news,education or just a simple help, my email is vinukoech@gmail.com
