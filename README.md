@@ -54,8 +54,6 @@ A Telegram bot for initiating **Lipa Na M-Pesa (STK Push)** payments via Telegra
 
 ## Demo
 
-> _Add screenshots or animated GIFs of your bot in action here._
-
 Example command in Telegram:
 
 ```
