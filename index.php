@@ -7,8 +7,25 @@ $botpesa = new BotPesa;
 $apiKey = 'YOUR BOT API KEY'; // Talk to BotFather
 $apiURL = 'https://api.telegram.org/bot' . $apiKey . '/';
 
+$rawData = file_get_contents('php://input');
+if (!$rawData) {
+    // Direct browser access, just show a message and exit
+    echo "This endpoint is for Telegram webhook only.";
+    http_response_code(200);
+    exit;
+}
+
+$update = json_decode($rawData);
+
+// Ensure $update->message exists
+if (!isset($update->message->text)) {
+    // Invalid webhook payload
+    http_response_code(200);
+    exit;
+}
+
 // Get the incoming update from Telegram
-$update = json_decode(file_get_contents('php://input'));
+// $update = json_decode(file_get_contents('php://input'));
 $text = $update->message->text;
 
 // Handle different commands
