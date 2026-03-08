@@ -167,7 +167,7 @@ Inputs are sanitized to prevent errors or misuse
 
 HTTPS is required for Telegram webhooks
 
-Recommended: log transactions and callbacks securely for auditing
+Recommended: log transactions and callbacks securely
 
 Contributing
 
@@ -184,13 +184,3 @@ For custom bot development for business, e-commerce, education, or automation:
 Email: vinukoech@gmail.com
 
 Telegram: @vinukoech
-
-License
-
-MIT License – see LICENSE
- for details
-
-
-
-
-Do you want me to do that next?
