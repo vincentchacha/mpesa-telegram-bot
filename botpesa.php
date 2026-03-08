@@ -1,181 +1,309 @@
 <?php
+
 require_once('vendor/autoload.php');
+
 use GuzzleHttp\Client;
 
 class BotPesa
 {
-    private function sendMessage($chatId, $text, $apiURL, $parseMode = null)
-    {
-        $client = new Client(['base_uri' => $apiURL]);
-        $keyboard = [['Help', 'About']];
-        $replyMarkup = json_encode([
-            "keyboard" => $keyboard,
-            "resize_keyboard" => true,
-            "one_time_keyboard" => true
-        ]);
 
-        $payload = [
-            'query' => [
-                'chat_id' => $chatId,
-                'text' => $text,
-                'reply_markup' => $replyMarkup
-            ]
-        ];
+/* -----------------------------------------
+SEND TELEGRAM MESSAGE
+----------------------------------------- */
 
-        if ($parseMode) {
-            $payload['query']['parse_mode'] = $parseMode;
-        }
+private function sendMessage($chatId, $text, $apiURL, $parseMode = null)
+{
+    $client = new Client(['base_uri' => $apiURL]);
 
-        $client->post('sendMessage', $payload);
+    $keyboard = [
+        ['Help', 'About']
+    ];
+
+    $replyMarkup = json_encode([
+        "keyboard" => $keyboard,
+        "resize_keyboard" => true,
+        "one_time_keyboard" => false
+    ]);
+
+    $payload = [
+        'query' => [
+            'chat_id' => $chatId,
+            'text' => $text,
+            'reply_markup' => $replyMarkup
+        ]
+    ];
+
+    if ($parseMode) {
+        $payload['query']['parse_mode'] = $parseMode;
     }
 
-    public function handle($update, $apiURL, $message)
-    {
-        $full_message = explode(" ", $message);
-        $contact = $full_message[1] ?? null;
-        $amount = $full_message[2] ?? null;
+    $client->post('sendMessage', $payload);
+}
 
-        $this->sendMessage($update->message->chat->id, "Please wait as we try to perform the transaction for you...", $apiURL);
 
-        $res = $this->STKPushSimulation($contact, $amount);
-        $data = json_decode($res);
+/* -----------------------------------------
+PHONE SANITIZER
+----------------------------------------- */
 
-        if ($data->ResponseCode == '0') {
-            $msg = $data->CustomerMessage . '. Please wait to enter your secret PIN. #Cheers';
-        } else {
-            $msg = "An error has occurred. Please try again and ensure the info you submit follows the correct format. #Sorry for the issue";
-        }
+private function sanitizePhone($phone)
+{
+    $phone = trim($phone);
 
-        $this->sendMessage($update->message->chat->id, $msg, $apiURL);
+    // remove spaces, hyphens etc
+    $phone = preg_replace('/[^0-9+]/', '', $phone);
+
+    if (preg_match('/^\+2547\d{8}$/', $phone)) {
+        return substr($phone, 1);
     }
 
-    public function help($update, $apiURL)
-    {
-        $text = "Ooh I heard you need some help from me. <i>You are so lucky you found the right Ninja</i>. I guess you want to know how to <code>lipa na mpesa</code>. It's simple: type <i>pay</i> followed by your <i>Safaricom mobile number</i> then the <i>amount</i>. e.g. <pre>Pay 254700000000 50</pre>";
-        $this->sendMessage($update->message->chat->id, $text, $apiURL, 'html');
+    if (preg_match('/^2547\d{8}$/', $phone)) {
+        return $phone;
     }
 
-    public function about($update, $apiURL)
-    {
-        $text = "I am an AI bot that can help you as an <b>MPESA</b> user perform <pre>Lipa na Mpesa</pre> transactions easily. I am not very intelligent yet, but I can help you a bit. Use me by telling me the transaction parameters in the message field. Type <b>Help</b> to get instructions or <b>About</b> to know more. To make a payment, type 'pay' followed by mobile number and amount like 'pay 254700000000 50' #Cheers";
-        $this->sendMessage($update->message->chat->id, $text, $apiURL, 'html');
+    if (preg_match('/^07\d{8}$/', $phone)) {
+        return '254' . substr($phone, 1);
     }
 
-    public function unknown($update, $apiURL)
-    {
-        $text = "Sorry, I did not understand what you said. Please retype the correct request or click on Help to get directions. I will be waiting...";
-        $this->sendMessage($update->message->chat->id, $text, $apiURL);
+    return false;
+}
+
+
+/* -----------------------------------------
+HANDLE PAY COMMAND
+----------------------------------------- */
+
+public function handle($update, $apiURL, $message)
+{
+    $chatId = $update->message->chat->id;
+
+    $parts = explode(" ", trim($message));
+
+    if (count($parts) != 3) {
+
+        $this->sendMessage(
+            $chatId,
+            "❌ Invalid format\n\nUse:\n<pre>pay 0712345678 50</pre>",
+            $apiURL,
+            'html'
+        );
+
+        return;
     }
 
-    public static function generateSandBoxToken()
-    {
-        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
-        $dotenv->load();
+    $phone = $this->sanitizePhone($parts[1]);
 
-        $consumer_key = getenv("consumer_key");
-        $consumer_secret = getenv("consumer_secret");
+    if (!$phone) {
 
-        if (!$consumer_key || !$consumer_secret) {
-            die("Please declare the consumer key and consumer secret as defined in the documentation");
-        }
+        $this->sendMessage(
+            $chatId,
+            "❌ Invalid phone number\n\nAllowed formats:\n<pre>
++254712345678
+254712345678
+0712345678
+</pre>",
+            $apiURL,
+            'html'
+        );
 
-        $url = 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
-        $credentials = base64_encode($consumer_key . ':' . $consumer_secret);
-
-        $curl = curl_init();
-        curl_setopt_array($curl, [
-            CURLOPT_URL => $url,
-            CURLOPT_HTTPHEADER => ['Authorization: Basic ' . $credentials],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => false
-        ]);
-
-        $response = curl_exec($curl);
-        return json_decode($response)->access_token;
+        return;
     }
 
-    public static function generateLiveToken()
-    {
-        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
-        $dotenv->load();
+    $amount = $parts[2];
 
-        $consumer_key = getenv("consumer_key");
-        $consumer_secret = getenv("consumer_secret");
+    if (!is_numeric($amount) || $amount <= 0) {
 
-        if (!$consumer_key || !$consumer_secret) {
-            die("Please declare the consumer key and consumer secret as defined in the documentation");
-        }
+        $this->sendMessage(
+            $chatId,
+            "❌ Invalid amount",
+            $apiURL
+        );
 
-        $url = 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
-        $credentials = base64_encode($consumer_key . ':' . $consumer_secret);
-
-        $curl = curl_init();
-        curl_setopt_array($curl, [
-            CURLOPT_URL => $url,
-            CURLOPT_HTTPHEADER => ['Authorization: Basic ' . $credentials],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => false
-        ]);
-
-        $response = curl_exec($curl);
-        return json_decode($response)->access_token;
+        return;
     }
 
-    public function STKPushSimulation($contact, $amount)
-    {
-        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
-        $dotenv->load();
-        $live = getenv("application_status");
+    $this->sendMessage(
+        $chatId,
+        "⏳ Initiating M-Pesa STK Push...",
+        $apiURL
+    );
 
-        if ($live === "true") {
-            $url = 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
-            $token = $this->generateLiveToken();
-        } elseif ($live === "sandbox") {
-            $url = 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
-            $token = $this->generateSandBoxToken();
-        } else {
-            return json_encode(["Message" => "invalid application status"]);
-        }
+    $res = $this->STKPushSimulation($phone, $amount);
 
-        $BusinessShortCode = 'YOUR_BUSINESS_CODE';
-        $LipaNaMpesaPasskey = "YOUR_LIPA_NA_MPESA_PASS_KEY";
-        $TransactionType = "CustomerPayBillOnline";
-        $PartyA = $contact;
-        $PartyB = 'PARTY_B';
-        $PhoneNumber = $contact;
-        $CallBackURL = "CALLBACK_URL";
-        $AccountReference = "BotPesa Telegram Bot";
-        $TransactionDesc = "Botpesa Telegram API bot.";
-        $Remark = "Transaction made successfully";
-        $Amount = $amount;
+    $data = json_decode($res);
 
-        $timestamp = '20' . date("ymdhis");
-        $password = base64_encode($BusinessShortCode . $LipaNaMpesaPasskey . $timestamp);
+    if (isset($data->ResponseCode) && $data->ResponseCode == "0") {
 
-        $curl_post_data = [
-            'BusinessShortCode' => $BusinessShortCode,
-            'Password' => $password,
-            'Timestamp' => $timestamp,
-            'TransactionType' => $TransactionType,
-            'Amount' => $Amount,
-            'PartyA' => $PartyA,
-            'PartyB' => $PartyB,
-            'PhoneNumber' => $PhoneNumber,
-            'CallBackURL' => $CallBackURL,
-            'AccountReference' => $AccountReference,
-            'TransactionDesc' => $TransactionDesc,
-            'Remark' => $Remark
-        ];
+        $msg = "✅ STK Push sent\n\nCheck your phone and enter your M-Pesa PIN.";
 
-        $curl = curl_init();
-        curl_setopt_array($curl, [
-            CURLOPT_URL => $url,
-            CURLOPT_HTTPHEADER => ['Content-Type:application/json', 'Authorization:Bearer ' . $token],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($curl_post_data)
-        ]);
+    } else {
 
-        return curl_exec($curl);
+        $msg = "❌ Transaction failed. Try again later.";
+
     }
+
+    $this->sendMessage($chatId, $msg, $apiURL);
+}
+
+
+/* -----------------------------------------
+HELP
+----------------------------------------- */
+
+public function help($update, $apiURL)
+{
+    $text = "
+<b>BotPesa Help</b>
+
+To make a payment type:
+
+<pre>pay 0712345678 50</pre>
+
+Formats accepted:
+
+<pre>
++254712345678
+254712345678
+0712345678
+</pre>
+";
+
+    $this->sendMessage(
+        $update->message->chat->id,
+        $text,
+        $apiURL,
+        'html'
+    );
+}
+
+
+/* -----------------------------------------
+ABOUT
+----------------------------------------- */
+
+public function about($update, $apiURL)
+{
+
+$text = "
+<b>BotPesa Telegram Bot</b>
+
+This bot allows customers to pay using
+<b>Lipa Na M-Pesa STK Push</b>.
+
+Simply type:
+
+<pre>pay phone amount</pre>
+
+Example:
+
+<pre>pay 0712345678 50</pre>
+";
+
+$this->sendMessage(
+    $update->message->chat->id,
+    $text,
+    $apiURL,
+    'html'
+);
+
+}
+
+
+/* -----------------------------------------
+UNKNOWN MESSAGE
+----------------------------------------- */
+
+public function unknown($update, $apiURL)
+{
+
+$this->sendMessage(
+    $update->message->chat->id,
+    "I didn't understand that.\nType Help for instructions.",
+    $apiURL
+);
+
+}
+
+
+/* -----------------------------------------
+MPESA TOKEN
+----------------------------------------- */
+
+public static function generateToken()
+{
+
+$consumer_key = getenv("consumer_key");
+$consumer_secret = getenv("consumer_secret");
+
+$url = 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
+
+$credentials = base64_encode($consumer_key . ':' . $consumer_secret);
+
+$curl = curl_init();
+
+curl_setopt_array($curl, [
+CURLOPT_URL => $url,
+CURLOPT_HTTPHEADER => ['Authorization: Basic ' . $credentials],
+CURLOPT_RETURNTRANSFER => true
+]);
+
+$response = curl_exec($curl);
+
+return json_decode($response)->access_token;
+
+}
+
+
+/* -----------------------------------------
+STK PUSH
+----------------------------------------- */
+
+public function STKPushSimulation($phone, $amount)
+{
+
+$token = self::generateToken();
+
+$url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest";
+
+$BusinessShortCode = "YOUR_SHORTCODE";
+$Passkey = "YOUR_PASSKEY";
+
+$timestamp = date("YmdHis");
+
+$password = base64_encode($BusinessShortCode . $Passkey . $timestamp);
+
+$data = [
+
+'BusinessShortCode' => $BusinessShortCode,
+'Password' => $password,
+'Timestamp' => $timestamp,
+'TransactionType' => "CustomerPayBillOnline",
+'Amount' => $amount,
+'PartyA' => $phone,
+'PartyB' => $BusinessShortCode,
+'PhoneNumber' => $phone,
+'CallBackURL' => "https://yourdomain.com/callback.php",
+'AccountReference' => "BotPesa",
+'TransactionDesc' => "Payment"
+
+];
+
+$curl = curl_init();
+
+curl_setopt_array($curl, [
+
+CURLOPT_URL => $url,
+CURLOPT_HTTPHEADER => [
+'Content-Type:application/json',
+'Authorization:Bearer ' . $token
+],
+CURLOPT_RETURNTRANSFER => true,
+CURLOPT_POST => true,
+CURLOPT_POSTFIELDS => json_encode($data)
+
+]);
+
+return curl_exec($curl);
+
+}
+
 }
